@@ -136,6 +136,8 @@ export function Navbar() {
       return;
     }
     await fetch("/api/auth/signout", { method: "POST" });
+    const { clearSessionCache } = await import("@/lib/supabase/rest");
+    clearSessionCache();
     globalThis.location.href = "/";
   }
 

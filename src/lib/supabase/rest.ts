@@ -8,65 +8,42 @@ function getKey() {
   return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 }
 
-function getCookiePrefix(): string {
+let cachedSession: { access_token: string | null; user_id: string | null } | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 30_000;
+
+async function fetchSession(): Promise<{ access_token: string | null; user_id: string | null }> {
+  const now = Date.now();
+  if (cachedSession && now - cacheTimestamp < CACHE_TTL) {
+    return cachedSession;
+  }
   try {
-    return `sb-${new URL(getUrl()).hostname.split(".")[0]}-auth-token`;
+    const res = await fetch("/api/auth/session");
+    if (!res.ok) return { access_token: null, user_id: null };
+    cachedSession = await res.json();
+    cacheTimestamp = now;
+    return cachedSession!;
   } catch {
-    return "sb-auth-token";
+    return { access_token: null, user_id: null };
   }
 }
 
-function readSessionFromCookies(): Record<string, unknown> | null {
-  try {
-    const prefix = getCookiePrefix();
-    const cookies = document.cookie.split("; ");
-
-    const exact = cookies.find((c) => c.startsWith(`${prefix}=`));
-    if (exact) {
-      const val = decodeURIComponent(exact.split("=").slice(1).join("="));
-      return JSON.parse(val);
-    }
-
-    const chunks: string[] = [];
-    for (let i = 0; ; i++) {
-      const chunk = cookies.find((c) => c.startsWith(`${prefix}.${i}=`));
-      if (!chunk) break;
-      chunks.push(decodeURIComponent(chunk.split("=").slice(1).join("=")));
-    }
-    if (chunks.length > 0) {
-      return JSON.parse(chunks.join(""));
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
+export function clearSessionCache() {
+  cachedSession = null;
+  cacheTimestamp = 0;
 }
 
-export function getUserIdFromCookie(): string | null {
-  try {
-    const session = readSessionFromCookies();
-    if (!session) return null;
-    const token = (session.access_token as string) ?? (Array.isArray(session) ? session[0] : null);
-    if (!token) return null;
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    return payload.sub ?? null;
-  } catch {
-    return null;
-  }
+export async function getUserId(): Promise<string | null> {
+  const session = await fetchSession();
+  return session.user_id;
 }
 
-function getAccessToken(): string | null {
-  try {
-    const session = readSessionFromCookies();
-    if (!session) return null;
-    return (session.access_token as string) ?? (Array.isArray(session) ? session[0] : null) ?? null;
-  } catch {
-    return null;
-  }
+async function getAccessToken(): Promise<string | null> {
+  const session = await fetchSession();
+  return session.access_token;
 }
 
-function headers(accessToken?: string | null) {
+function buildHeaders(accessToken?: string | null) {
   const key = getKey();
   return {
     apikey: key,
@@ -81,9 +58,9 @@ export async function supabaseGet<T = unknown>(
   query = "select=*",
 ): Promise<{ data: T[] | null; error: string | null }> {
   try {
-    const token = getAccessToken();
+    const token = await getAccessToken();
     const res = await fetch(`${getUrl()}/rest/v1/${table}?${query}`, {
-      headers: headers(token),
+      headers: buildHeaders(token),
     });
     if (!res.ok) {
       const body = await res.text();
@@ -100,11 +77,11 @@ export async function supabaseInsert<T = unknown>(
   table: string,
   payload: Record<string, unknown> | Record<string, unknown>[],
 ): Promise<{ data: T[] | null; error: string | null }> {
-  const token = getAccessToken();
+  const token = await getAccessToken();
   try {
     const res = await fetch(`${getUrl()}/rest/v1/${table}`, {
       method: "POST",
-      headers: headers(token),
+      headers: buildHeaders(token),
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
@@ -123,11 +100,11 @@ export async function supabaseUpdate<T = unknown>(
   match: string,
   payload: Record<string, unknown>,
 ): Promise<{ data: T[] | null; error: string | null }> {
-  const token = getAccessToken();
+  const token = await getAccessToken();
   try {
     const res = await fetch(`${getUrl()}/rest/v1/${table}?${match}`, {
       method: "PATCH",
-      headers: headers(token),
+      headers: buildHeaders(token),
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
@@ -145,11 +122,11 @@ export async function supabaseDelete(
   table: string,
   match: string,
 ): Promise<{ error: string | null }> {
-  const token = getAccessToken();
+  const token = await getAccessToken();
   try {
     const res = await fetch(`${getUrl()}/rest/v1/${table}?${match}`, {
       method: "DELETE",
-      headers: headers(token),
+      headers: buildHeaders(token),
     });
     if (!res.ok) {
       const body = await res.text();

@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Package, Calendar, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 
-import { getUserIdFromCookie } from "@/lib/supabase/rest";
+import { getUserId } from "@/lib/supabase/rest";
 import { supabaseGet } from "@/lib/supabase/rest";
 import type { Tables } from "@/types/database";
 
@@ -111,7 +111,7 @@ export default function OrdersPage() {
 
   useEffect(() => {
     async function fetchOrders() {
-      const userId = getUserIdFromCookie();
+      const userId = await getUserId();
 
       if (!userId) {
         router.replace("/login?redirect=/orders");

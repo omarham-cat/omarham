@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
-import { supabaseGet, supabaseInsert, getUserIdFromCookie } from "@/lib/supabase/rest";
+import { supabaseGet, supabaseInsert, getUserId } from "@/lib/supabase/rest";
 import type { Tables } from "@/types/database";
 import { Button } from "@/components/ui/button";
 import {
@@ -479,7 +479,7 @@ export default function CateringQuotePage() {
   async function handleSubmit() {
     setSubmitting(true);
     try {
-      const userId = getUserIdFromCookie();
+      const userId = await getUserId();
 
       const { data: quoteData, error: quoteError } = await supabaseInsert<{ id: string }>(
         "catering_quotes",

@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Calendar, Users, Utensils } from "lucide-react";
 import { toast } from "sonner";
 
-import { getUserIdFromCookie } from "@/lib/supabase/rest";
+import { getUserId } from "@/lib/supabase/rest";
 import { supabaseGet } from "@/lib/supabase/rest";
 import type { Tables } from "@/types/database";
 
@@ -72,7 +72,7 @@ export default function QuotesPage() {
 
   useEffect(() => {
     async function fetchQuotes() {
-      const userId = getUserIdFromCookie();
+      const userId = await getUserId();
 
       if (!userId) {
         router.replace("/login?redirect=/quotes");
