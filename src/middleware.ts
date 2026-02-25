@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 function isSupabaseConfigured(): boolean {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-  return url.startsWith("https://") && !url.includes("your-project");
+  return url.startsWith("https://") && !url.includes("your-project") && !url.includes("placeholder");
 }
 
 export async function middleware(request: NextRequest) {
