@@ -20,7 +20,7 @@ import {
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
-import { createClient } from "@/lib/supabase/client";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import type { Tables } from "@/types/database";
 import { Button } from "@/components/ui/button";
 import {
@@ -252,8 +252,6 @@ function emptyMenuSelections(numDays: number, existing?: MenuSelections): MenuSe
 }
 
 export default function CateringQuotePage() {
-  const supabase = createClient();
-
   const [currentStep, setCurrentStep] = useState(0);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [addons, setAddons] = useState<Addon[]>([]);
@@ -281,30 +279,32 @@ export default function CateringQuotePage() {
 
   useEffect(() => {
     async function fetchData() {
-      try {
-        const [menuResult, addonsResult] = await Promise.all([
-          supabase
-            .from("catering_menu_items")
-            .select("*")
-            .eq("is_available", true)
-            .order("category")
-            .order("name"),
-          supabase.from("catering_addons").select("*").order("addon_type").order("name"),
-        ]);
-        if (menuResult.data && menuResult.data.length > 0) {
-          setMenuItems(menuResult.data);
-          if (addonsResult.data) setAddons(addonsResult.data);
-          return;
+      if (isSupabaseConfigured()) {
+        try {
+          const supabase = createClient();
+          const [menuResult, addonsResult] = await Promise.all([
+            supabase
+              .from("catering_menu_items")
+              .select("*")
+              .eq("is_available", true)
+              .order("category")
+              .order("name"),
+            supabase.from("catering_addons").select("*").order("addon_type").order("name"),
+          ]);
+          if (menuResult.data && menuResult.data.length > 0) {
+            setMenuItems(menuResult.data);
+            if (addonsResult.data) setAddons(addonsResult.data);
+            return;
+          }
+        } catch {
+          // Supabase query failed, fall through to mock data
         }
-      } catch {
-        // Supabase not configured
       }
       const { MOCK_CATERING_MENU_ITEMS, MOCK_CATERING_ADDONS } = await import("@/lib/mock-data");
       setMenuItems(MOCK_CATERING_MENU_ITEMS as MenuItem[]);
       setAddons(MOCK_CATERING_ADDONS as Addon[]);
     }
     fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -454,9 +454,9 @@ export default function CateringQuotePage() {
     return max || eventDetails.defaultGuests;
   }
 
-  async function saveQuoteDays(quoteId: string) {
+  async function saveQuoteDays(quoteId: string, db: ReturnType<typeof createClient>) {
     for (let d = 1; d <= eventDetails.numDays; d++) {
-      const { data: quoteDayData, error: dayError } = await supabase
+      const { data: quoteDayData, error: dayError } = await db
         .from("quote_days")
         .insert({ quote_id: quoteId, day_number: d })
         .select()
@@ -476,7 +476,7 @@ export default function CateringQuotePage() {
       );
 
       if (dayItems.length > 0) {
-        const { error: itemsError } = await supabase
+        const { error: itemsError } = await db
           .from("quote_day_items")
           .insert(dayItems);
         if (itemsError) throw itemsError;
@@ -487,10 +487,11 @@ export default function CateringQuotePage() {
   async function handleSubmit() {
     setSubmitting(true);
     try {
-      const { data: userData } = await supabase.auth.getUser();
+      const db = createClient();
+      const { data: userData } = await db.auth.getUser();
       const userId = userData?.user?.id ?? null;
 
-      const { data: quote, error: quoteError } = await supabase
+      const { data: quote, error: quoteError } = await db
         .from("catering_quotes")
         .insert({
           user_id: userId,
@@ -509,7 +510,7 @@ export default function CateringQuotePage() {
 
       if (quoteError || !quote) throw quoteError ?? new Error("Failed to create quote");
 
-      await saveQuoteDays(quote.id);
+      await saveQuoteDays(quote.id, db);
 
       const addonInserts = Object.entries(addonSelections)
         .filter(([, qty]) => qty > 0)
@@ -520,7 +521,7 @@ export default function CateringQuotePage() {
         }));
 
       if (addonInserts.length > 0) {
-        const { error: addonsError } = await supabase
+        const { error: addonsError } = await db
           .from("quote_addons")
           .insert(addonInserts);
         if (addonsError) throw addonsError;

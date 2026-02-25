@@ -1,15 +1,20 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-const PLACEHOLDER_URL = "https://placeholder.supabase.co";
-const PLACEHOLDER_KEY = "placeholder-key";
+function getSupabaseUrl() {
+  return process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
+}
+
+function getSupabaseKey() {
+  return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder";
+}
 
 export async function createClient() {
   const cookieStore = await cookies();
 
   return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL || PLACEHOLDER_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || PLACEHOLDER_KEY,
+    getSupabaseUrl(),
+    getSupabaseKey(),
     {
       cookies: {
         getAll() {
