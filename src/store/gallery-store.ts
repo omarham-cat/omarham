@@ -12,7 +12,7 @@ export interface GalleryImage {
 
 export const GALLERY_CATEGORIES = ["Sweets", "Catering", "Events", "Behind the Scenes"];
 
-const DEFAULT_IMAGES: GalleryImage[] = [
+export const DEFAULT_IMAGES: GalleryImage[] = [
   { id: "g1", src: "https://placehold.co/600x400/FEF3C7/78350F?text=Kaju+Barfi+Platter", alt: "Kaju Barfi arranged on a silver platter", category: "Sweets" },
   { id: "g2", src: "https://placehold.co/600x400/FDE68A/78350F?text=Wedding+Setup", alt: "Grand wedding catering setup with live counters", category: "Events" },
   { id: "g3", src: "https://placehold.co/600x400/FCD34D/78350F?text=Motichoor+Ladoo", alt: "Fresh Motichoor Ladoo being prepared", category: "Sweets" },

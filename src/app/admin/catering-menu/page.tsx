@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { supabaseGet, supabaseInsert, supabaseUpdate, supabaseDelete } from "@/lib/supabase/rest";
 import { MOCK_CATERING_MENU_ITEMS } from "@/lib/mock-data";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -46,7 +47,6 @@ const serviceTimeLabel: Record<string, string> = {
 };
 
 export default function CateringMenuPage() {
-  const supabase = createClient();
   const [items, setItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -69,17 +69,17 @@ export default function CateringMenuPage() {
       setLoading(false);
       return;
     }
-    const { data, error } = await supabase
-      .from("catering_menu_items")
-      .select("*")
-      .order("service_time")
-      .order("name");
-    if (error) {
-      toast.error("Failed to load menu items");
-      setLoading(false);
-      return;
+    try {
+      const { data, error } = await supabaseGet<MenuItem>("catering_menu_items", "select=*&order=service_time,name");
+      if (error) {
+        toast.error(error ?? "Failed to load menu items");
+        setLoading(false);
+        return;
+      }
+      setItems(data ?? []);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to connect to database");
     }
-    setItems(data ?? []);
     setLoading(false);
   }
 
@@ -135,10 +135,7 @@ export default function CateringMenuPage() {
     };
 
     if (editing) {
-      const { error } = await supabase
-        .from("catering_menu_items")
-        .update(payload)
-        .eq("id", editing.id);
+      const { error } = await supabaseUpdate("catering_menu_items", `id=eq.${editing.id}`, payload);
       if (error) {
         toast.error("Failed to update item");
         setSaving(false);
@@ -146,9 +143,7 @@ export default function CateringMenuPage() {
       }
       toast.success("Item updated");
     } else {
-      const { error } = await supabase
-        .from("catering_menu_items")
-        .insert(payload);
+      const { error } = await supabaseInsert("catering_menu_items", payload);
       if (error) {
         toast.error("Failed to create item");
         setSaving(false);
@@ -163,10 +158,7 @@ export default function CateringMenuPage() {
 
   async function handleDelete(id: string) {
     if (!confirm("Are you sure you want to delete this menu item?")) return;
-    const { error } = await supabase
-      .from("catering_menu_items")
-      .delete()
-      .eq("id", id);
+    const { error } = await supabaseDelete("catering_menu_items", `id=eq.${id}`);
     if (error) {
       toast.error("Failed to delete item");
       return;

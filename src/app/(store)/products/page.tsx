@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { Search, SlidersHorizontal, X } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import { supabaseGet } from "@/lib/supabase/rest";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
@@ -45,8 +45,6 @@ export default function ProductsPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const supabase = createClient();
-
         const [
           productsRes,
           categoriesRes,
@@ -54,27 +52,27 @@ export default function ProductsPage() {
           ingredientsRes,
           productIngredientsRes,
         ] = await Promise.all([
-          supabase.from("products").select("*").eq("is_available", true),
-          supabase.from("categories").select("*"),
-          supabase.from("product_variants").select("*"),
-          supabase.from("ingredients").select("*"),
-          supabase.from("product_ingredients").select("*"),
+          supabaseGet("products", "select=*&is_available=eq.true"),
+          supabaseGet("categories"),
+          supabaseGet("product_variants"),
+          supabaseGet("ingredients"),
+          supabaseGet("product_ingredients"),
         ]);
 
-        const rawProducts = productsRes.data ?? [];
-        const cats = categoriesRes.data ?? [];
-        const variants = variantsRes.data ?? [];
-        const ings = ingredientsRes.data ?? [];
-        const prodIngs = productIngredientsRes.data ?? [];
+        const rawProducts = (productsRes.data ?? []) as Tables<"products">[];
+        const cats = (categoriesRes.data ?? []) as Tables<"categories">[];
+        const variants = (variantsRes.data ?? []) as Tables<"product_variants">[];
+        const ings = (ingredientsRes.data ?? []) as Tables<"ingredients">[];
+        const prodIngs = (productIngredientsRes.data ?? []) as { product_id: string; ingredient_id: string }[];
 
         if (rawProducts.length > 0) {
           const joined: Product[] = rawProducts.map((p) => ({
             ...p,
-            category: cats.find((c: Tables<"categories"> ) => c.id === p.category_id),
-            variants: variants.filter((v: Tables<"product_variants">) => v.product_id === p.id),
+            category: cats.find((c) => c.id === p.category_id),
+            variants: variants.filter((v) => v.product_id === p.id),
             ingredients: prodIngs
-              .filter((pi: { product_id: string; ingredient_id: string }) => pi.product_id === p.id)
-              .map((pi: { product_id: string; ingredient_id: string }) => ings.find((i: Tables<"ingredients">) => i.id === pi.ingredient_id)!)
+              .filter((pi) => pi.product_id === p.id)
+              .map((pi) => ings.find((i) => i.id === pi.ingredient_id)!)
               .filter(Boolean),
           }));
 

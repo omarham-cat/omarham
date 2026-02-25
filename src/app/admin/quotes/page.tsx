@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, Fragment } from "react";
-import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { supabaseGet, supabaseUpdate } from "@/lib/supabase/rest";
 import { toast } from "sonner";
 import {
   Table,
@@ -62,7 +63,6 @@ const statusColor: Record<string, string> = {
 };
 
 export default function QuotesPage() {
-  const supabase = createClient();
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<string>("all");
@@ -76,16 +76,17 @@ export default function QuotesPage() {
       setLoading(false);
       return;
     }
-    const { data, error } = await supabase
-      .from("catering_quotes")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (error) {
-      toast.error("Failed to load quotes");
-      setLoading(false);
-      return;
+    try {
+      const { data, error } = await supabaseGet<Quote>("catering_quotes", "select=*&order=created_at.desc");
+      if (error) {
+        toast.error(error ?? "Failed to load quotes");
+        setLoading(false);
+        return;
+      }
+      setQuotes(data ?? []);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to connect to database");
     }
-    setQuotes(data ?? []);
     setLoading(false);
   }
 
@@ -113,42 +114,45 @@ export default function QuotesPage() {
     if (!details[quoteId]) {
       setLoadingDetails((prev) => new Set(prev).add(quoteId));
 
-      const [daysRes, addonsRes] = await Promise.all([
-        supabase
-          .from("quote_days")
-          .select(
-            "*, quote_day_items(*, menu_item:catering_menu_items(name, service_time))"
-          )
-          .eq("quote_id", quoteId)
-          .order("day_number"),
-        supabase
-          .from("quote_addons")
-          .select("*, addon:catering_addons(name, price)")
-          .eq("quote_id", quoteId),
-      ]);
+      try {
+        const [daysRes, dayItemsRes, menuItemsRes, addonsRes, addonDefsRes] = await Promise.all([
+          supabaseGet<Tables<"quote_days">>("quote_days", `select=*&quote_id=eq.${quoteId}&order=day_number`),
+          supabaseGet<Tables<"quote_day_items">>("quote_day_items", "select=*"),
+          supabaseGet<{ id: string; name: string; service_time: string }>("catering_menu_items", "select=id,name,service_time"),
+          supabaseGet<Tables<"quote_addons">>("quote_addons", `select=*&quote_id=eq.${quoteId}`),
+          supabaseGet<{ id: string; name: string; price: number }>("catering_addons", "select=id,name,price"),
+        ]);
 
-      setDetails((prev) => ({
-        ...prev,
-        [quoteId]: {
-          days: (daysRes.data ?? []).map((d) => ({
-            ...d,
-            quote_day_items: (d.quote_day_items ?? []).map((item: Record<string, unknown>) => ({
-              ...item,
-              menu_item: item.menu_item as { name: string; service_time: string } | null,
-            })),
-          })) as QuoteDay[],
-          addons: (addonsRes.data ?? []).map((a) => ({
-            ...a,
-            addon: a.addon as { name: string; price: number } | null,
-          })) as QuoteAddon[],
-        },
-      }));
+        const menuMap = new Map((menuItemsRes.data ?? []).map((m) => [m.id, m]));
+        const addonMap = new Map((addonDefsRes.data ?? []).map((a) => [a.id, a]));
 
-      setLoadingDetails((prev) => {
-        const next = new Set(prev);
-        next.delete(quoteId);
-        return next;
-      });
+        setDetails((prev) => ({
+          ...prev,
+          [quoteId]: {
+            days: (daysRes.data ?? []).map((d) => ({
+              ...d,
+              quote_day_items: (dayItemsRes.data ?? [])
+                .filter((di) => di.quote_day_id === d.id)
+                .map((di) => ({
+                  ...di,
+                  menu_item: menuMap.get(di.menu_item_id) ?? null,
+                })),
+            })) as QuoteDay[],
+            addons: (addonsRes.data ?? []).map((a) => ({
+              ...a,
+              addon: addonMap.get(a.addon_id) ?? null,
+            })) as QuoteAddon[],
+          },
+        }));
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to load quote details");
+      } finally {
+        setLoadingDetails((prev) => {
+          const next = new Set(prev);
+          next.delete(quoteId);
+          return next;
+        });
+      }
     }
   }
 
@@ -156,10 +160,7 @@ export default function QuotesPage() {
     quoteId: string,
     status: Quote["status"]
   ) {
-    const { error } = await supabase
-      .from("catering_quotes")
-      .update({ status })
-      .eq("id", quoteId);
+    const { error } = await supabaseUpdate("catering_quotes", `id=eq.${quoteId}`, { status });
     if (error) {
       toast.error("Failed to update status");
       return;

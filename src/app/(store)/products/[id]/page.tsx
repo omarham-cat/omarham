@@ -7,7 +7,7 @@ import Image from "next/image";
 import { ArrowLeft, Flame, Minus, Plus, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
 
-import { createClient } from "@/lib/supabase/client";
+import { supabaseGet } from "@/lib/supabase/rest";
 import { useCartStore } from "@/store/cart-store";
 import type { Tables } from "@/types/database";
 import { MOCK_PRODUCTS, MOCK_VARIANTS, MOCK_INGREDIENTS, MOCK_PRODUCT_INGREDIENTS } from "@/lib/mock-data";
@@ -42,36 +42,30 @@ export default function ProductDetailPage() {
       setLoading(true);
 
       try {
-        const supabase = createClient();
         const [productRes, variantsRes, prodIngredientsRes] = await Promise.all([
-          supabase
-            .from("products")
-            .select("*, category:categories(*)")
-            .eq("id", id)
-            .single(),
-          supabase
-            .from("product_variants")
-            .select("*")
-            .eq("product_id", id)
-            .order("price"),
-          supabase
-            .from("product_ingredients")
-            .select("ingredient_id")
-            .eq("product_id", id),
+          supabaseGet<Tables<"products">>("products", `select=*&id=eq.${id}`),
+          supabaseGet<Variant>("product_variants", `select=*&product_id=eq.${id}&order=price`),
+          supabaseGet<{ ingredient_id: string }>("product_ingredients", `select=ingredient_id&product_id=eq.${id}`),
         ]);
 
-        if (productRes.data) {
-          setProduct(productRes.data as Product);
+        const rawProduct = productRes.data?.[0];
+        if (rawProduct) {
+          let category: Tables<"categories"> | null = null;
+          if (rawProduct.category_id) {
+            const catRes = await supabaseGet<Tables<"categories">>("categories", `select=*&id=eq.${rawProduct.category_id}`);
+            category = catRes.data?.[0] ?? null;
+          }
+          setProduct({ ...rawProduct, category } as Product);
           if (variantsRes.data) {
             setVariants(variantsRes.data);
             if (variantsRes.data.length > 0) setSelectedVariant(variantsRes.data[0]);
           }
           if (prodIngredientsRes.data && prodIngredientsRes.data.length > 0) {
-            const ingredientIds = prodIngredientsRes.data.map((pi: { ingredient_id: string }) => pi.ingredient_id);
-            const { data: ingredientsData } = await supabase
-              .from("ingredients")
-              .select("*")
-              .in("id", ingredientIds);
+            const ingredientIds = prodIngredientsRes.data.map((pi) => pi.ingredient_id);
+            const { data: ingredientsData } = await supabaseGet<Ingredient>(
+              "ingredients",
+              `select=*&id=in.(${ingredientIds.join(",")})`
+            );
             if (ingredientsData) setIngredients(ingredientsData);
           }
           setLoading(false);

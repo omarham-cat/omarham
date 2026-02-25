@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, Fragment } from "react";
-import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { supabaseGet, supabaseUpdate } from "@/lib/supabase/rest";
 import { toast } from "sonner";
 import {
   Table,
@@ -55,7 +56,6 @@ const statusColor: Record<string, string> = {
 };
 
 export default function OrdersPage() {
-  const supabase = createClient();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<string>("all");
@@ -69,21 +69,26 @@ export default function OrdersPage() {
       setLoading(false);
       return;
     }
-    const { data, error } = await supabase
-      .from("orders")
-      .select("*, profile:profiles(full_name)")
-      .order("created_at", { ascending: false });
-    if (error) {
-      toast.error("Failed to load orders");
-      setLoading(false);
-      return;
+    try {
+      const [ordersRes, profilesRes] = await Promise.all([
+        supabaseGet<Tables<"orders">>("orders", "select=*&order=created_at.desc"),
+        supabaseGet<{ id: string; full_name: string | null }>("profiles", "select=id,full_name"),
+      ]);
+      if (ordersRes.error) {
+        toast.error(ordersRes.error ?? "Failed to load orders");
+        setLoading(false);
+        return;
+      }
+      const profileMap = new Map((profilesRes.data ?? []).map((p) => [p.id, p]));
+      setOrders(
+        (ordersRes.data ?? []).map((o) => ({
+          ...o,
+          profile: profileMap.get(o.user_id) ?? null,
+        }))
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to connect to database");
     }
-    setOrders(
-      (data ?? []).map((o) => ({
-        ...o,
-        profile: o.profile as { full_name: string | null } | null,
-      }))
-    );
     setLoading(false);
   }
 
@@ -110,23 +115,31 @@ export default function OrdersPage() {
 
     if (!orderItems[orderId]) {
       setLoadingItems((prev) => new Set(prev).add(orderId));
-      const { data } = await supabase
-        .from("order_items")
-        .select("*, product:products(name), variant:product_variants(label, weight_grams)")
-        .eq("order_id", orderId);
-      setOrderItems((prev) => ({
-        ...prev,
-        [orderId]: (data ?? []).map((item) => ({
-          ...item,
-          product: item.product as { name: string } | null,
-          variant: item.variant as { label: string; weight_grams: number } | null,
-        })),
-      }));
-      setLoadingItems((prev) => {
-        const next = new Set(prev);
-        next.delete(orderId);
-        return next;
-      });
+      try {
+        const [itemsRes, productsRes, variantsRes] = await Promise.all([
+          supabaseGet<Tables<"order_items">>("order_items", `select=*&order_id=eq.${orderId}`),
+          supabaseGet<{ id: string; name: string }>("products", "select=id,name"),
+          supabaseGet<{ id: string; label: string; weight_grams: number }>("product_variants", "select=id,label,weight_grams"),
+        ]);
+        const productMap = new Map((productsRes.data ?? []).map((p) => [p.id, p]));
+        const variantMap = new Map((variantsRes.data ?? []).map((v) => [v.id, v]));
+        setOrderItems((prev) => ({
+          ...prev,
+          [orderId]: (itemsRes.data ?? []).map((item) => ({
+            ...item,
+            product: productMap.get(item.product_id) ?? null,
+            variant: variantMap.get(item.variant_id) ?? null,
+          })),
+        }));
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to load order items");
+      } finally {
+        setLoadingItems((prev) => {
+          const next = new Set(prev);
+          next.delete(orderId);
+          return next;
+        });
+      }
     }
   }
 
@@ -134,10 +147,7 @@ export default function OrdersPage() {
     orderId: string,
     status: Order["status"]
   ) {
-    const { error } = await supabase
-      .from("orders")
-      .update({ status })
-      .eq("id", orderId);
+    const { error } = await supabaseUpdate("orders", `id=eq.${orderId}`, { status });
     if (error) {
       toast.error("Failed to update status");
       return;

@@ -1,11 +1,47 @@
 "use client";
 
-import { Star, Quote } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Star, Quote, Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { useTestimonialsStore } from "@/store/testimonials-store";
+import { DEFAULT_TESTIMONIALS } from "@/store/testimonials-store";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { supabaseGet } from "@/lib/supabase/rest";
 import { useLanguageStore } from "@/store/language-store";
+
+interface Testimonial {
+  id: string;
+  name: string;
+  location: string;
+  rating: number;
+  text: string;
+  type: "sweets" | "catering";
+  eventDetail?: string;
+}
+
+interface TestimonialRow {
+  id: string;
+  name: string;
+  location: string;
+  rating: number;
+  text: string;
+  type: "sweets" | "catering";
+  event_detail?: string | null;
+  created_at?: string;
+}
+
+function rowToTestimonial(row: TestimonialRow): Testimonial {
+  return {
+    id: row.id,
+    name: row.name,
+    location: row.location,
+    rating: row.rating,
+    text: row.text,
+    type: row.type,
+    eventDetail: row.event_detail ?? undefined,
+  };
+}
 
 function StarRating({ rating }: { rating: number }) {
   return (
@@ -34,8 +70,30 @@ function getInitials(name: string): string {
 }
 
 export default function TestimonialsPage() {
-  const testimonials = useTestimonialsStore((s) => s.testimonials);
   const { t: tr } = useLanguageStore();
+  const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      if (!isSupabaseConfigured()) {
+        setTestimonials(DEFAULT_TESTIMONIALS);
+        setLoading(false);
+        return;
+      }
+      const { data, error } = await supabaseGet<TestimonialRow>(
+        "testimonials",
+        "select=*&order=created_at.desc"
+      );
+      if (error || !data?.length) {
+        setTestimonials(DEFAULT_TESTIMONIALS);
+      } else {
+        setTestimonials(data.map(rowToTestimonial));
+      }
+      setLoading(false);
+    }
+    load();
+  }, []);
 
   const avgRating =
     testimonials.length > 0
@@ -44,6 +102,14 @@ export default function TestimonialsPage() {
           testimonials.length
         ).toFixed(1)
       : "0.0";
+
+  if (loading) {
+    return (
+      <main className="flex items-center justify-center py-20">
+        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      </main>
+    );
+  }
 
   return (
     <main>

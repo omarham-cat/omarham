@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { supabaseGet, supabaseInsert, supabaseUpdate, supabaseDelete } from "@/lib/supabase/rest";
 import { MOCK_CATEGORIES } from "@/lib/mock-data";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,6 @@ import { Pencil, Trash2, Plus, Loader2 } from "lucide-react";
 type Category = Tables<"categories">;
 
 export default function CategoriesPage() {
-  const supabase = createClient();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -41,21 +41,28 @@ export default function CategoriesPage() {
     image_url: "",
   });
 
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
   async function fetchCategories() {
     if (!isSupabaseConfigured()) {
       setCategories(MOCK_CATEGORIES);
       setLoading(false);
       return;
     }
-    const { data, error } = await supabase
-      .from("categories")
-      .select("*")
-      .order("name");
-    if (error) {
-      toast.error("Failed to load categories");
-      return;
+    try {
+      const { data, error } = await supabaseGet<Category>("categories", "select=*&order=name");
+      if (error) {
+        toast.error(error);
+        setFetchError(error);
+        setLoading(false);
+        return;
+      }
+      setCategories(data ?? []);
+    } catch (e) {
+      const msg = `Fetch failed: ${e instanceof Error ? e.message : String(e)}`;
+      toast.error(msg);
+      setFetchError(msg);
     }
-    setCategories(data ?? []);
     setLoading(false);
   }
 
@@ -93,10 +100,7 @@ export default function CategoriesPage() {
     };
 
     if (editing) {
-      const { error } = await supabase
-        .from("categories")
-        .update(payload)
-        .eq("id", editing.id);
+      const { error } = await supabaseUpdate("categories", `id=eq.${editing.id}`, payload);
       if (error) {
         toast.error("Failed to update category");
         setSaving(false);
@@ -104,7 +108,7 @@ export default function CategoriesPage() {
       }
       toast.success("Category updated");
     } else {
-      const { error } = await supabase.from("categories").insert(payload);
+      const { error } = await supabaseInsert("categories", payload);
       if (error) {
         toast.error("Failed to create category");
         setSaving(false);
@@ -119,7 +123,7 @@ export default function CategoriesPage() {
 
   async function handleDelete(id: string) {
     if (!confirm("Are you sure you want to delete this category?")) return;
-    const { error } = await supabase.from("categories").delete().eq("id", id);
+    const { error } = await supabaseDelete("categories", `id=eq.${id}`);
     if (error) {
       toast.error("Failed to delete category");
       return;
@@ -130,8 +134,20 @@ export default function CategoriesPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
+      <div className="flex flex-col items-center justify-center gap-4 py-20">
         <Loader2 className="size-6 animate-spin" />
+        <p className="text-xs text-muted-foreground">Loading categories…</p>
+      </div>
+    );
+  }
+
+  if (fetchError) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-20">
+        <p className="text-sm text-destructive">{fetchError}</p>
+        <Button onClick={() => { setFetchError(null); setLoading(true); fetchCategories(); }}>
+          Retry
+        </Button>
       </div>
     );
   }

@@ -20,7 +20,8 @@ import {
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
-import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { supabaseGet, supabaseInsert, getUserIdFromCookie } from "@/lib/supabase/rest";
 import type { Tables } from "@/types/database";
 import { Button } from "@/components/ui/button";
 import {
@@ -281,15 +282,9 @@ export default function CateringQuotePage() {
     async function fetchData() {
       if (isSupabaseConfigured()) {
         try {
-          const supabase = createClient();
           const [menuResult, addonsResult] = await Promise.all([
-            supabase
-              .from("catering_menu_items")
-              .select("*")
-              .eq("is_available", true)
-              .order("category")
-              .order("name"),
-            supabase.from("catering_addons").select("*").order("addon_type").order("name"),
+            supabaseGet<MenuItem>("catering_menu_items", "select=*&is_available=eq.true&order=category,name"),
+            supabaseGet<Addon>("catering_addons", "select=*&order=addon_type,name"),
           ]);
           if (menuResult.data && menuResult.data.length > 0) {
             setMenuItems(menuResult.data);
@@ -297,7 +292,7 @@ export default function CateringQuotePage() {
             return;
           }
         } catch {
-          // Supabase query failed, fall through to mock data
+          // Query failed, fall through to mock data
         }
       }
       const { MOCK_CATERING_MENU_ITEMS, MOCK_CATERING_ADDONS } = await import("@/lib/mock-data");
@@ -454,32 +449,29 @@ export default function CateringQuotePage() {
     return max || eventDetails.defaultGuests;
   }
 
-  async function saveQuoteDays(quoteId: string, db: ReturnType<typeof createClient>) {
+  async function saveQuoteDays(quoteId: string) {
     for (let d = 1; d <= eventDetails.numDays; d++) {
-      const { data: quoteDayData, error: dayError } = await db
-        .from("quote_days")
-        .insert({ quote_id: quoteId, day_number: d })
-        .select()
-        .single();
+      const { data: quoteDayData, error: dayError } = await supabaseInsert<{ id: string }>(
+        "quote_days",
+        { quote_id: quoteId, day_number: d }
+      );
 
-      if (dayError || !quoteDayData) throw dayError ?? new Error("Failed to create quote day");
+      if (dayError || !quoteDayData?.[0]) throw new Error(dayError ?? "Failed to create quote day");
 
       const daySelections = menuSelections[d];
       if (!daySelections) continue;
 
       const dayItems = SERVICE_TIMES.flatMap((st) =>
         (daySelections[st.key] ?? []).map((itemId) => ({
-          quote_day_id: quoteDayData.id,
+          quote_day_id: quoteDayData[0].id,
           menu_item_id: itemId,
           service_time: st.key,
         }))
       );
 
       if (dayItems.length > 0) {
-        const { error: itemsError } = await db
-          .from("quote_day_items")
-          .insert(dayItems);
-        if (itemsError) throw itemsError;
+        const { error: itemsError } = await supabaseInsert("quote_day_items", dayItems);
+        if (itemsError) throw new Error(itemsError);
       }
     }
   }
@@ -487,13 +479,11 @@ export default function CateringQuotePage() {
   async function handleSubmit() {
     setSubmitting(true);
     try {
-      const db = createClient();
-      const { data: userData } = await db.auth.getUser();
-      const userId = userData?.user?.id ?? null;
+      const userId = getUserIdFromCookie();
 
-      const { data: quote, error: quoteError } = await db
-        .from("catering_quotes")
-        .insert({
+      const { data: quoteData, error: quoteError } = await supabaseInsert<{ id: string }>(
+        "catering_quotes",
+        {
           user_id: userId,
           num_days: eventDetails.numDays,
           num_guests: totalGuestsForQuote(),
@@ -504,13 +494,13 @@ export default function CateringQuotePage() {
           contact_email: eventDetails.contactEmail,
           event_date: eventDetails.eventDate || null,
           notes: eventDetails.notes || null,
-        })
-        .select()
-        .single();
+        }
+      );
 
-      if (quoteError || !quote) throw quoteError ?? new Error("Failed to create quote");
+      const quote = quoteData?.[0];
+      if (quoteError || !quote) throw new Error(quoteError ?? "Failed to create quote");
 
-      await saveQuoteDays(quote.id, db);
+      await saveQuoteDays(quote.id);
 
       const addonInserts = Object.entries(addonSelections)
         .filter(([, qty]) => qty > 0)
@@ -521,10 +511,8 @@ export default function CateringQuotePage() {
         }));
 
       if (addonInserts.length > 0) {
-        const { error: addonsError } = await db
-          .from("quote_addons")
-          .insert(addonInserts);
-        if (addonsError) throw addonsError;
+        const { error: addonsError } = await supabaseInsert("quote_addons", addonInserts);
+        if (addonsError) throw new Error(addonsError);
       }
 
       setQuoteTotal(estimatedTotal);

@@ -13,7 +13,7 @@ export interface Testimonial {
   eventDetail?: string;
 }
 
-const DEFAULT_TESTIMONIALS: Testimonial[] = [
+export const DEFAULT_TESTIMONIALS: Testimonial[] = [
   { id: "t1", name: "Priya Sharma", location: "Mumbai", rating: 5, text: "The Kaju Katli was absolutely divine — it melted in my mouth! I ordered 5 kg for Diwali gifting and every single person called to ask where I got it from. OmarHam is now my go-to for every festive season.", type: "sweets" },
   { id: "t2", name: "Rajesh & Anita Gupta", location: "Delhi", rating: 5, text: "We hired OmarHam for our daughter's wedding reception (400 guests, 2 days). The food was spectacular — guests are still talking about the live chaat counter and the Moong Dal Halwa. Flawless service from start to finish.", type: "catering", eventDetail: "Wedding Reception · 400 guests" },
   { id: "t3", name: "Fatima Khan", location: "Hyderabad", rating: 5, text: "I've been ordering their Motichoor Ladoo for every celebration for the past two years. Consistent quality every single time. The 1 kg box is the perfect size for our family gatherings.", type: "sweets" },

@@ -4,7 +4,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
-import { demoLogin, DEMO_ADMIN } from "@/lib/demo-auth";
+import { demoLogin } from "@/lib/demo-auth";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -86,21 +86,10 @@ function LoginForm() {
           <CardDescription>Sign in to your account</CardDescription>
         </CardHeader>
         <CardContent>
-          {!isSupabaseConfigured() && (
-            <div className="mb-4 rounded-md border border-dashed border-primary/40 bg-primary/5 p-3 text-sm">
-              <p className="font-medium text-primary">Demo Mode</p>
-              <p className="mt-1 text-muted-foreground">
-                Email: <code className="rounded bg-muted px-1">{DEMO_ADMIN.email}</code>
-              </p>
-              <p className="text-muted-foreground">
-                Password: <code className="rounded bg-muted px-1">{DEMO_ADMIN.password}</code>
-              </p>
-            </div>
-          )}
           <Tabs defaultValue="email" className="w-full">
             <TabsList className="w-full">
               <TabsTrigger value="email">Email</TabsTrigger>
-              <TabsTrigger value="google" disabled={!isSupabaseConfigured()}>Google</TabsTrigger>
+              <TabsTrigger value="google">Google</TabsTrigger>
             </TabsList>
 
             <TabsContent value="email">

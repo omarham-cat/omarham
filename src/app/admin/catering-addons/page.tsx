@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { supabaseGet, supabaseInsert, supabaseUpdate, supabaseDelete } from "@/lib/supabase/rest";
 import { MOCK_CATERING_ADDONS } from "@/lib/mock-data";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,6 @@ import { Pencil, Trash2, Plus, Loader2 } from "lucide-react";
 type Addon = Tables<"catering_addons">;
 
 export default function CateringAddonsPage() {
-  const supabase = createClient();
   const [addons, setAddons] = useState<Addon[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -48,17 +48,17 @@ export default function CateringAddonsPage() {
       setLoading(false);
       return;
     }
-    const { data, error } = await supabase
-      .from("catering_addons")
-      .select("*")
-      .order("addon_type")
-      .order("name");
-    if (error) {
-      toast.error("Failed to load add-ons");
-      setLoading(false);
-      return;
+    try {
+      const { data, error } = await supabaseGet<Addon>("catering_addons", "select=*&order=addon_type,name");
+      if (error) {
+        toast.error(error ?? "Failed to load add-ons");
+        setLoading(false);
+        return;
+      }
+      setAddons(data ?? []);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to connect to database");
     }
-    setAddons(data ?? []);
     setLoading(false);
   }
 
@@ -98,10 +98,7 @@ export default function CateringAddonsPage() {
     };
 
     if (editing) {
-      const { error } = await supabase
-        .from("catering_addons")
-        .update(payload)
-        .eq("id", editing.id);
+      const { error } = await supabaseUpdate("catering_addons", `id=eq.${editing.id}`, payload);
       if (error) {
         toast.error("Failed to update add-on");
         setSaving(false);
@@ -109,7 +106,7 @@ export default function CateringAddonsPage() {
       }
       toast.success("Add-on updated");
     } else {
-      const { error } = await supabase.from("catering_addons").insert(payload);
+      const { error } = await supabaseInsert("catering_addons", payload);
       if (error) {
         toast.error("Failed to create add-on");
         setSaving(false);
@@ -124,10 +121,7 @@ export default function CateringAddonsPage() {
 
   async function handleDelete(id: string) {
     if (!confirm("Are you sure you want to delete this add-on?")) return;
-    const { error } = await supabase
-      .from("catering_addons")
-      .delete()
-      .eq("id", id);
+    const { error } = await supabaseDelete("catering_addons", `id=eq.${id}`);
     if (error) {
       toast.error("Failed to delete add-on");
       return;

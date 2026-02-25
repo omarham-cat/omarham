@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, Fragment } from "react";
-import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { supabaseGet, supabaseInsert, supabaseUpdate, supabaseDelete } from "@/lib/supabase/rest";
 import { MOCK_PRODUCTS_RAW, MOCK_VARIANTS, MOCK_CATEGORIES, MOCK_INGREDIENTS, MOCK_PRODUCT_INGREDIENTS } from "@/lib/mock-data";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -48,7 +49,6 @@ type Variant = Tables<"product_variants">;
 type Ingredient = Tables<"ingredients">;
 
 export default function ProductsPage() {
-  const supabase = createClient();
   const [products, setProducts] = useState<
     (Product & { category: Category | null; variants: Variant[]; ingredient_ids: string[] })[]
   >([]);
@@ -107,39 +107,48 @@ export default function ProductsPage() {
       return;
     }
 
-    const [prodRes, catRes, ingRes, piRes] = await Promise.all([
-      supabase
-        .from("products")
-        .select("*, category:categories(*), variants:product_variants(*)")
-        .order("name"),
-      supabase.from("categories").select("*").order("name"),
-      supabase.from("ingredients").select("*").order("name"),
-      supabase.from("product_ingredients").select("*"),
-    ]);
+    try {
+      const [prodRes, varRes, catRes, ingRes, piRes] = await Promise.all([
+        supabaseGet<Product>("products", "select=*&order=name"),
+        supabaseGet<Variant>("product_variants", "select=*"),
+        supabaseGet<Category>("categories", "select=*&order=name"),
+        supabaseGet<Ingredient>("ingredients", "select=*&order=name"),
+        supabaseGet<{ product_id: string; ingredient_id: string }>("product_ingredients", "select=*"),
+      ]);
 
-    if (prodRes.error) {
-      toast.error("Failed to load products");
-      setLoading(false);
-      return;
+      if (prodRes.error) {
+        toast.error(prodRes.error ?? "Failed to load products");
+        setLoading(false);
+        return;
+      }
+
+      const catMap = new Map((catRes.data ?? []).map((c) => [c.id, c]));
+      const varMap = new Map<string, Variant[]>();
+      (varRes.data ?? []).forEach((v) => {
+        const list = varMap.get(v.product_id) ?? [];
+        list.push(v);
+        varMap.set(v.product_id, list);
+      });
+      const piMap = new Map<string, string[]>();
+      (piRes.data ?? []).forEach((pi) => {
+        const list = piMap.get(pi.product_id) ?? [];
+        list.push(pi.ingredient_id);
+        piMap.set(pi.product_id, list);
+      });
+
+      setProducts(
+        (prodRes.data ?? []).map((p) => ({
+          ...p,
+          category: catMap.get(p.category_id) ?? null,
+          variants: varMap.get(p.id) ?? [],
+          ingredient_ids: piMap.get(p.id) ?? [],
+        }))
+      );
+      setCategories(catRes.data ?? []);
+      setIngredients(ingRes.data ?? []);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to connect to database");
     }
-
-    const piMap = new Map<string, string[]>();
-    piRes.data?.forEach((pi) => {
-      const list = piMap.get(pi.product_id) ?? [];
-      list.push(pi.ingredient_id);
-      piMap.set(pi.product_id, list);
-    });
-
-    setProducts(
-      (prodRes.data ?? []).map((p) => ({
-        ...p,
-        category: p.category as Category | null,
-        variants: (p.variants ?? []) as Variant[],
-        ingredient_ids: piMap.get(p.id) ?? [],
-      }))
-    );
-    setCategories(catRes.data ?? []);
-    setIngredients(ingRes.data ?? []);
     setLoading(false);
   }
 
@@ -205,37 +214,27 @@ export default function ProductsPage() {
     let productId = editing?.id;
 
     if (editing) {
-      const { error } = await supabase
-        .from("products")
-        .update(payload)
-        .eq("id", editing.id);
+      const { error } = await supabaseUpdate("products", `id=eq.${editing.id}`, payload);
       if (error) {
         toast.error("Failed to update product");
         setSaving(false);
         return;
       }
     } else {
-      const { data, error } = await supabase
-        .from("products")
-        .insert(payload)
-        .select("id")
-        .single();
-      if (error || !data) {
+      const { data, error } = await supabaseInsert<Product>("products", payload);
+      if (error || !data?.length) {
         toast.error("Failed to create product");
         setSaving(false);
         return;
       }
-      productId = data.id;
+      productId = data[0].id;
     }
 
     // Sync ingredients
     if (productId) {
-      await supabase
-        .from("product_ingredients")
-        .delete()
-        .eq("product_id", productId);
+      await supabaseDelete("product_ingredients", `product_id=eq.${productId}`);
       if (selectedIngredients.length > 0) {
-        await supabase.from("product_ingredients").insert(
+        await supabaseInsert("product_ingredients",
           selectedIngredients.map((ingredient_id) => ({
             product_id: productId,
             ingredient_id,
@@ -252,7 +251,7 @@ export default function ProductsPage() {
 
   async function handleDeleteProduct(id: string) {
     if (!confirm("Are you sure you want to delete this product?")) return;
-    const { error } = await supabase.from("products").delete().eq("id", id);
+    const { error } = await supabaseDelete("products", `id=eq.${id}`);
     if (error) {
       toast.error("Failed to delete product");
       return;
@@ -297,10 +296,7 @@ export default function ProductsPage() {
     };
 
     if (editingVariant) {
-      const { error } = await supabase
-        .from("product_variants")
-        .update(payload)
-        .eq("id", editingVariant.id);
+      const { error } = await supabaseUpdate("product_variants", `id=eq.${editingVariant.id}`, payload);
       if (error) {
         toast.error("Failed to update variant");
         setSavingVariant(false);
@@ -308,7 +304,7 @@ export default function ProductsPage() {
       }
       toast.success("Variant updated");
     } else {
-      const { error } = await supabase.from("product_variants").insert(payload);
+      const { error } = await supabaseInsert("product_variants", payload);
       if (error) {
         toast.error("Failed to create variant");
         setSavingVariant(false);
@@ -323,10 +319,7 @@ export default function ProductsPage() {
 
   async function handleDeleteVariant(id: string) {
     if (!confirm("Delete this variant?")) return;
-    const { error } = await supabase
-      .from("product_variants")
-      .delete()
-      .eq("id", id);
+    const { error } = await supabaseDelete("product_variants", `id=eq.${id}`);
     if (error) {
       toast.error("Failed to delete variant");
       return;

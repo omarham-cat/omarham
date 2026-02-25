@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,11 +28,48 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { DEFAULT_TESTIMONIALS } from "@/store/testimonials-store";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
 import {
-  useTestimonialsStore,
-  type Testimonial,
-} from "@/store/testimonials-store";
-import { Pencil, Trash2, Plus, Star } from "lucide-react";
+  supabaseGet,
+  supabaseInsert,
+  supabaseUpdate,
+  supabaseDelete,
+} from "@/lib/supabase/rest";
+import { Pencil, Trash2, Plus, Star, Loader2 } from "lucide-react";
+
+interface Testimonial {
+  id: string;
+  name: string;
+  location: string;
+  rating: number;
+  text: string;
+  type: "sweets" | "catering";
+  eventDetail?: string;
+}
+
+interface TestimonialRow {
+  id: string;
+  name: string;
+  location: string;
+  rating: number;
+  text: string;
+  type: "sweets" | "catering";
+  event_detail?: string | null;
+  created_at?: string;
+}
+
+function rowToTestimonial(row: TestimonialRow): Testimonial {
+  return {
+    id: row.id,
+    name: row.name,
+    location: row.location,
+    rating: row.rating,
+    text: row.text,
+    type: row.type,
+    eventDetail: row.event_detail ?? undefined,
+  };
+}
 
 function StarDisplay({ rating }: { rating: number }) {
   return (
@@ -52,8 +89,9 @@ function StarDisplay({ rating }: { rating: number }) {
 }
 
 export default function AdminTestimonialsPage() {
-  const { testimonials, addTestimonial, updateTestimonial, deleteTestimonial } =
-    useTestimonialsStore();
+  const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Testimonial | null>(null);
@@ -67,6 +105,29 @@ export default function AdminTestimonialsPage() {
     type: "sweets" as Testimonial["type"],
     eventDetail: "",
   });
+
+  const fetchTestimonials = useCallback(async () => {
+    if (!isSupabaseConfigured()) {
+      setTestimonials(DEFAULT_TESTIMONIALS);
+      setLoading(false);
+      return;
+    }
+    const { data, error } = await supabaseGet<TestimonialRow>(
+      "testimonials",
+      "select=*&order=created_at.desc"
+    );
+    if (error) {
+      toast.error("Failed to load testimonials");
+      setTestimonials(DEFAULT_TESTIMONIALS);
+    } else {
+      setTestimonials((data ?? []).map(rowToTestimonial));
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchTestimonials();
+  }, [fetchTestimonials]);
 
   const filtered =
     filterType === "all"
@@ -99,7 +160,7 @@ export default function AdminTestimonialsPage() {
     setDialogOpen(true);
   }
 
-  function handleSave() {
+  async function handleSave() {
     if (!form.name.trim() || !form.text.trim()) {
       toast.error("Name and review text are required");
       return;
@@ -110,23 +171,55 @@ export default function AdminTestimonialsPage() {
       rating: form.rating,
       text: form.text.trim(),
       type: form.type,
-      eventDetail: form.eventDetail.trim() || undefined,
+      event_detail: form.eventDetail.trim() || null,
     };
 
+    setSaving(true);
     if (editing) {
-      updateTestimonial(editing.id, payload);
-      toast.success("Testimonial updated");
+      const { error } = await supabaseUpdate(
+        "testimonials",
+        `id=eq.${editing.id}`,
+        payload
+      );
+      if (error) {
+        toast.error("Failed to update testimonial");
+      } else {
+        toast.success("Testimonial updated");
+        setDialogOpen(false);
+        await fetchTestimonials();
+      }
     } else {
-      addTestimonial(payload);
-      toast.success("Testimonial added");
+      const { error } = await supabaseInsert("testimonials", payload);
+      if (error) {
+        toast.error("Failed to add testimonial");
+      } else {
+        toast.success("Testimonial added");
+        setDialogOpen(false);
+        await fetchTestimonials();
+      }
     }
-    setDialogOpen(false);
+    setSaving(false);
   }
 
-  function handleDelete(id: string) {
+  async function handleDelete(id: string) {
     if (!confirm("Delete this testimonial?")) return;
-    deleteTestimonial(id);
-    toast.success("Testimonial deleted");
+    setSaving(true);
+    const { error } = await supabaseDelete("testimonials", `id=eq.${id}`);
+    if (error) {
+      toast.error("Failed to delete testimonial");
+    } else {
+      toast.success("Testimonial deleted");
+      await fetchTestimonials();
+    }
+    setSaving(false);
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
   return (
@@ -144,7 +237,7 @@ export default function AdminTestimonialsPage() {
               <SelectItem value="catering">Catering</SelectItem>
             </SelectContent>
           </Select>
-          <Button onClick={openAdd}>
+          <Button onClick={openAdd} disabled={saving}>
             <Plus className="mr-2 size-4" />
             Add Testimonial
           </Button>
@@ -214,6 +307,7 @@ export default function AdminTestimonialsPage() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        disabled={saving}
                         onClick={() => handleDelete(t.id)}
                       >
                         <Trash2 className="size-4 text-destructive" />
@@ -326,7 +420,8 @@ export default function AdminTestimonialsPage() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSave}>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving && <Loader2 className="mr-2 size-4 animate-spin" />}
               {editing ? "Update" : "Add"}
             </Button>
           </DialogFooter>

@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
 import {
   ShoppingCart,
   Menu,
@@ -51,7 +50,6 @@ const LOCALES: { value: Locale; label: string; flag: string }[] = [
 ];
 
 export function Navbar() {
-  const router = useRouter();
   const itemCount = useCartStore((s) => s.getItemCount());
   const { t, locale, setLocale } = useLanguageStore();
   const [mounted, setMounted] = useState(false);
@@ -123,25 +121,28 @@ export function Navbar() {
   }, []);
 
   const isLoggedIn = !!(user || demoUser);
+  const displayName =
+    profile?.full_name ||
+    user?.user_metadata?.full_name ||
+    user?.user_metadata?.name ||
+    demoUser?.full_name ||
+    null;
   const displayEmail = user?.email ?? demoUser?.email ?? "";
 
   async function handleLogout() {
     if (!isSupabaseConfigured()) {
       clearDemoUser();
-      router.push("/");
-      router.refresh();
+      globalThis.location.href = "/";
       return;
     }
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/");
-    router.refresh();
+    await fetch("/api/auth/signout", { method: "POST" });
+    globalThis.location.href = "/";
   }
 
-  const initials = profile?.full_name
-    ? profile.full_name
+  const initials = displayName
+    ? displayName
         .split(" ")
-        .map((n) => n[0])
+        .map((n: string) => n[0])
         .join("")
         .toUpperCase()
         .slice(0, 2)
@@ -218,8 +219,8 @@ export function Navbar() {
                   <Button variant="ghost" size="icon" className="rounded-full">
                     <Avatar size="sm">
                       <AvatarImage
-                        src={profile?.avatar_url ?? undefined}
-                        alt={profile?.full_name ?? "User"}
+                        src={profile?.avatar_url ?? user?.user_metadata?.avatar_url ?? undefined}
+                        alt={displayName ?? "User"}
                       />
                       <AvatarFallback>{initials}</AvatarFallback>
                     </Avatar>
@@ -228,7 +229,7 @@ export function Navbar() {
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuLabel className="font-normal">
                     <p className="text-sm font-medium">
-                      {profile?.full_name ?? "User"}
+                      {displayName ?? "User"}
                     </p>
                     <p className="text-xs text-muted-foreground truncate">
                       {displayEmail}
@@ -334,14 +335,14 @@ export function Navbar() {
                     <div className="flex items-center gap-3 pb-2">
                       <Avatar size="sm">
                         <AvatarImage
-                          src={profile?.avatar_url ?? undefined}
-                          alt={profile?.full_name ?? "User"}
+                          src={profile?.avatar_url ?? user?.user_metadata?.avatar_url ?? undefined}
+                          alt={displayName ?? "User"}
                         />
                         <AvatarFallback>{initials}</AvatarFallback>
                       </Avatar>
                       <div>
                         <p className="text-sm font-medium">
-                          {profile?.full_name ?? "User"}
+                          {displayName ?? "User"}
                         </p>
                         <p className="text-xs text-muted-foreground truncate">
                           {displayEmail}

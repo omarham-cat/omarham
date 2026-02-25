@@ -6,7 +6,8 @@ import Link from "next/link";
 import { Calendar, Users, Utensils } from "lucide-react";
 import { toast } from "sonner";
 
-import { createClient } from "@/lib/supabase/client";
+import { getUserIdFromCookie } from "@/lib/supabase/rest";
+import { supabaseGet } from "@/lib/supabase/rest";
 import type { Tables } from "@/types/database";
 
 import { Button } from "@/components/ui/button";
@@ -71,21 +72,17 @@ export default function QuotesPage() {
 
   useEffect(() => {
     async function fetchQuotes() {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const userId = getUserIdFromCookie();
 
-      if (!user) {
+      if (!userId) {
         router.replace("/login?redirect=/quotes");
         return;
       }
 
-      const { data, error } = await supabase
-        .from("catering_quotes")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
+      const { data, error } = await supabaseGet<Quote>(
+        "catering_quotes",
+        `select=*&user_id=eq.${userId}&order=created_at.desc`
+      );
 
       if (error) {
         toast.error("Failed to load quotes");

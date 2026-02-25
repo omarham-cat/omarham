@@ -1,28 +1,67 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
-import { X } from "lucide-react";
+import { X, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  useGalleryStore,
   GALLERY_CATEGORIES,
-  type GalleryImage,
+  DEFAULT_IMAGES,
 } from "@/store/gallery-store";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { supabaseGet } from "@/lib/supabase/rest";
 import { useLanguageStore } from "@/store/language-store";
 
+interface GalleryImage {
+  id: string;
+  src: string;
+  alt: string;
+  category: string;
+  sort_order: number;
+}
+
 export default function GalleryPage() {
-  const images = useGalleryStore((s) => s.images);
   const { t } = useLanguageStore();
+  const [images, setImages] = useState<GalleryImage[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState("All");
   const [lightboxImage, setLightboxImage] = useState<GalleryImage | null>(null);
   const ALL_CATEGORIES = [t.gallery.all, ...GALLERY_CATEGORIES];
+
+  useEffect(() => {
+    async function load() {
+      if (!isSupabaseConfigured()) {
+        setImages(DEFAULT_IMAGES.map((img, i) => ({ ...img, sort_order: i })));
+        setLoading(false);
+        return;
+      }
+      const { data, error } = await supabaseGet<GalleryImage>(
+        "gallery_images",
+        "select=*&order=sort_order"
+      );
+      if (error || !data?.length) {
+        setImages(DEFAULT_IMAGES.map((img, i) => ({ ...img, sort_order: i })));
+      } else {
+        setImages(data);
+      }
+      setLoading(false);
+    }
+    load();
+  }, []);
 
   const filtered =
     activeCategory === t.gallery.all
       ? images
       : images.filter((img) => img.category === activeCategory);
+
+  if (loading) {
+    return (
+      <main className="mx-auto flex max-w-7xl items-center justify-center px-4 py-20">
+        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">

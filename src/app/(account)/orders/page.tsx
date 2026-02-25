@@ -6,7 +6,8 @@ import Link from "next/link";
 import { Package, Calendar, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 
-import { createClient } from "@/lib/supabase/client";
+import { getUserIdFromCookie } from "@/lib/supabase/rest";
+import { supabaseGet } from "@/lib/supabase/rest";
 import type { Tables } from "@/types/database";
 
 import { Button } from "@/components/ui/button";
@@ -74,28 +75,27 @@ function OrderCardSkeleton() {
 async function enrichOrderWithItems(
   order: Order
 ): Promise<OrderWithItems> {
-  const supabase = createClient();
-  const { data: itemsData } = await supabase
-    .from("order_items")
-    .select("*")
-    .eq("order_id", order.id);
+  const { data: itemsData } = await supabaseGet<Tables<"order_items">>(
+    "order_items",
+    `select=*&order_id=eq.${order.id}`
+  );
 
   if (!itemsData || itemsData.length === 0) {
     return { ...order, items: [] };
   }
 
-  const productIds = [...new Set(itemsData.map((i: Tables<"order_items">) => i.product_id))];
-  const variantIds = [...new Set(itemsData.map((i: Tables<"order_items">) => i.variant_id))];
+  const productIds = [...new Set(itemsData.map((i) => i.product_id))];
+  const variantIds = [...new Set(itemsData.map((i) => i.variant_id))];
 
-  const [{ data: products }, { data: variants }] = await Promise.all([
-    supabase.from("products").select("id, name").in("id", productIds),
-    supabase.from("product_variants").select("id, label").in("id", variantIds),
+  const [productsRes, variantsRes] = await Promise.all([
+    supabaseGet<{ id: string; name: string }>("products", `select=id,name&id=in.(${productIds.join(",")})`),
+    supabaseGet<{ id: string; label: string }>("product_variants", `select=id,label&id=in.(${variantIds.join(",")})`),
   ]);
 
-  const productMap = new Map((products ?? []).map((p: { id: string; name: string }) => [p.id, p.name]));
-  const variantMap = new Map((variants ?? []).map((v: { id: string; label: string }) => [v.id, v.label]));
+  const productMap = new Map((productsRes.data ?? []).map((p) => [p.id, p.name]));
+  const variantMap = new Map((variantsRes.data ?? []).map((v) => [v.id, v.label]));
 
-  const items: OrderItem[] = itemsData.map((item: Tables<"order_items">) => ({
+  const items: OrderItem[] = itemsData.map((item) => ({
     ...item,
     productName: productMap.get(item.product_id) ?? "Unknown product",
     variantLabel: variantMap.get(item.variant_id) ?? "Unknown variant",
@@ -111,21 +111,17 @@ export default function OrdersPage() {
 
   useEffect(() => {
     async function fetchOrders() {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const userId = getUserIdFromCookie();
 
-      if (!user) {
+      if (!userId) {
         router.replace("/login?redirect=/orders");
         return;
       }
 
-      const { data: ordersData, error: ordersError } = await supabase
-        .from("orders")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
+      const { data: ordersData, error: ordersError } = await supabaseGet<Order>(
+        "orders",
+        `select=*&user_id=eq.${userId}&order=created_at.desc`
+      );
 
       if (ordersError) {
         toast.error("Failed to load orders");
