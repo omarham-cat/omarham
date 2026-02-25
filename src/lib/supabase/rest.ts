@@ -4,15 +4,50 @@ export function getUrl() {
   return process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 }
 
+function getKey() {
+  return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+}
+
+function getCookiePrefix(): string {
+  try {
+    return `sb-${new URL(getUrl()).hostname.split(".")[0]}-auth-token`;
+  } catch {
+    return "sb-auth-token";
+  }
+}
+
+function readSessionFromCookies(): Record<string, unknown> | null {
+  try {
+    const prefix = getCookiePrefix();
+    const cookies = document.cookie.split("; ");
+
+    const exact = cookies.find((c) => c.startsWith(`${prefix}=`));
+    if (exact) {
+      const val = decodeURIComponent(exact.split("=").slice(1).join("="));
+      return JSON.parse(val);
+    }
+
+    const chunks: string[] = [];
+    for (let i = 0; ; i++) {
+      const chunk = cookies.find((c) => c.startsWith(`${prefix}.${i}=`));
+      if (!chunk) break;
+      chunks.push(decodeURIComponent(chunk.split("=").slice(1).join("=")));
+    }
+    if (chunks.length > 0) {
+      return JSON.parse(chunks.join(""));
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function getUserIdFromCookie(): string | null {
   try {
-    const url = getUrl();
-    if (!url) return null;
-    const key = `sb-${new URL(url).hostname.split(".")[0]}-auth-token`;
-    const raw = document.cookie.split("; ").find((c) => c.startsWith(`${key}=`));
-    if (!raw) return null;
-    const parsed = JSON.parse(decodeURIComponent(raw.split("=").slice(1).join("=")));
-    const token = parsed?.access_token ?? parsed?.[0];
+    const session = readSessionFromCookies();
+    if (!session) return null;
+    const token = (session.access_token as string) ?? (Array.isArray(session) ? session[0] : null);
     if (!token) return null;
     const payload = JSON.parse(atob(token.split(".")[1]));
     return payload.sub ?? null;
@@ -21,11 +56,17 @@ export function getUserIdFromCookie(): string | null {
   }
 }
 
-function getKey() {
-  return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+function getAccessToken(): string | null {
+  try {
+    const session = readSessionFromCookies();
+    if (!session) return null;
+    return (session.access_token as string) ?? (Array.isArray(session) ? session[0] : null) ?? null;
+  } catch {
+    return null;
+  }
 }
 
-function headers(accessToken?: string) {
+function headers(accessToken?: string | null) {
   const key = getKey();
   return {
     apikey: key,
@@ -35,27 +76,14 @@ function headers(accessToken?: string) {
   };
 }
 
-async function getAccessToken(): Promise<string | null> {
-  try {
-    const key = `sb-${new URL(getUrl()).hostname.split(".")[0]}-auth-token`;
-    const raw = document.cookie
-      .split("; ")
-      .find((c) => c.startsWith(`${key}=`));
-    if (!raw) return null;
-    const parsed = JSON.parse(decodeURIComponent(raw.split("=").slice(1).join("=")));
-    return parsed?.access_token ?? parsed?.[0] ?? null;
-  } catch {
-    return null;
-  }
-}
-
 export async function supabaseGet<T = unknown>(
   table: string,
   query = "select=*",
 ): Promise<{ data: T[] | null; error: string | null }> {
   try {
+    const token = getAccessToken();
     const res = await fetch(`${getUrl()}/rest/v1/${table}?${query}`, {
-      headers: headers(),
+      headers: headers(token),
     });
     if (!res.ok) {
       const body = await res.text();
@@ -72,11 +100,11 @@ export async function supabaseInsert<T = unknown>(
   table: string,
   payload: Record<string, unknown> | Record<string, unknown>[],
 ): Promise<{ data: T[] | null; error: string | null }> {
-  const token = await getAccessToken();
+  const token = getAccessToken();
   try {
     const res = await fetch(`${getUrl()}/rest/v1/${table}`, {
       method: "POST",
-      headers: headers(token ?? undefined),
+      headers: headers(token),
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
@@ -95,11 +123,11 @@ export async function supabaseUpdate<T = unknown>(
   match: string,
   payload: Record<string, unknown>,
 ): Promise<{ data: T[] | null; error: string | null }> {
-  const token = await getAccessToken();
+  const token = getAccessToken();
   try {
     const res = await fetch(`${getUrl()}/rest/v1/${table}?${match}`, {
       method: "PATCH",
-      headers: headers(token ?? undefined),
+      headers: headers(token),
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
@@ -117,11 +145,11 @@ export async function supabaseDelete(
   table: string,
   match: string,
 ): Promise<{ error: string | null }> {
-  const token = await getAccessToken();
+  const token = getAccessToken();
   try {
     const res = await fetch(`${getUrl()}/rest/v1/${table}?${match}`, {
       method: "DELETE",
-      headers: headers(token ?? undefined),
+      headers: headers(token),
     });
     if (!res.ok) {
       const body = await res.text();
